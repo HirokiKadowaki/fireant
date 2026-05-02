@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# FireAnt
 
-## Getting Started
+Personal FIRE (Financial Independence, Retire Early) tracker, built for Japan-specific scenarios.
 
-First, run the development server:
+Tracks monthly expenses, income, account balances, and liabilities, then projects your FIRE date using configurable safe withdrawal rate, expected return, and pension assumptions. Includes Japan-specific features: 確定拠出年金 lockup-until-60 bridge analysis, 厚生年金 pension top-up at 65, NISA / 特定口座 account types, and JPY-everywhere display.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Built as a personal learning project to replace a Google Sheets workflow.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Features
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+- Monthly snapshot entry with auto-save and inline formula evaluation (`1500+800+450` → 2750)
+- Three-scenario FIRE projection (conservative / expected / optimistic real returns)
+- Bridge analysis for funds locked in 確定拠出年金 until age 60
+- Coast FIRE calculation
+- Mortgage amortization with separate original / current balance tracking
+- History page with trend charts and CSV export
+- Privacy mode toggle for screen-sharing
+- Stale-data nudge when monthly entry is overdue
+- Mobile-optimized PWA — installable, fullscreen launch
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Stack
 
-## Learn More
+- **Framework:** Next.js 16 (App Router)
+- **Styling:** Tailwind CSS
+- **Database:** Supabase (Postgres with Row-Level Security)
+- **Auth:** Supabase Auth (email + password)
+- **Hosting:** Vercel with auto-deploy on push
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture notes
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Single-user design** with full RLS isolation per account
+- **Monthly snapshots, not transaction-level** — sustainable workflow over years
+- **Real returns and inflation-adjusted projections** throughout
+- **Source-of-truth data model** — store birth date and compute age, store original principal and current balance separately, etc.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Local development
 
-## Deploy on Vercel
+1. Clone this repo
+2. Set up a Supabase project, run `schema.sql` in the SQL Editor
+3. `cp .env.local.example .env.local` and fill in your Supabase URL and anon key
+4. `npm install`
+5. `npm run dev`
+6. Open `http://localhost:3000`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Status
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Personal project. v1 complete. Not actively seeking contributors but happy to discuss the design — open an issue.
