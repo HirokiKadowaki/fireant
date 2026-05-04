@@ -46,5 +46,5 @@ Built as a personal learning project to replace a Google Sheets workflow.
 
 ## Status
 
-Personal project. v1 complete. Not actively seeking contributors but happy to discuss the design — open an issue.
+Personal project. v1 complete. Not actively seeking contributors but happy to discuss the design.
 v2: Added AI-powered summary with Claude
