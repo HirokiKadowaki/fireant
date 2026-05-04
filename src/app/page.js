@@ -26,7 +26,7 @@ export default function HomePage() {
       supabase.from('profiles').select('*').eq('id', user.id).single(),
       supabase.from('accounts').select('*').eq('is_archived', false).order('display_order'),
       supabase.from('liabilities').select('*').eq('is_archived', false),
-      supabase.from('monthly_snapshots').select('id, snapshot_date').order('snapshot_date', { ascending: false }).limit(6),
+      supabase.from('monthly_snapshots').select('id, snapshot_date, ai_insight, ai_insight_generated_at').order('snapshot_date', { ascending: false }).limit(6),
     ])
 
     const profile = profileRes.data
@@ -163,6 +163,7 @@ function DashboardContent({ dashboard, privateMode }) {
 </p>
         </div>
       )}
+      {latestMonth && <InsightCard latestMonth={latestMonth} dashboard={dashboard} />}
 
       <div className="bg-white rounded-lg p-5">
         <p className="text-sm font-medium mb-3">Accounts</p>
@@ -381,6 +382,13 @@ function formatM(value) {
   return `¥${millions.toFixed(1)}M`
 }
 
+function calcCost(usage) {
+  // Sonnet 4.6 pricing as of early 2026: $3/MTok input, $15/MTok output
+  const inputCost = (usage.input_tokens / 1_000_000) * 3
+  const outputCost = (usage.output_tokens / 1_000_000) * 15
+  return inputCost + outputCost
+}
+
 function Hidden({ children, hide }) {
   if (!hide) return <>{children}</>
   return (
@@ -446,9 +454,15 @@ function computeDashboard(data) {
     (latestSnapshotData.balances.some(b => b.snapshot_id === s.id) ||
      latestSnapshotData.amounts.some(a => a.snapshot_id === s.id))
   )
-  const latestMonth = latestCompleteSnapshot
-    ? { date: latestCompleteSnapshot.snapshot_date, ...summarizeSnapshot(latestCompleteSnapshot.id, latestSnapshotData, incomeIds, expenseIds) }
-    : null
+const latestMonth = latestCompleteSnapshot
+  ? {
+      id: latestCompleteSnapshot.id,
+      date: latestCompleteSnapshot.snapshot_date,
+      aiInsight: latestCompleteSnapshot.ai_insight,
+      aiInsightGeneratedAt: latestCompleteSnapshot.ai_insight_generated_at,
+      ...summarizeSnapshot(latestCompleteSnapshot.id, latestSnapshotData, incomeIds, expenseIds)
+    }
+  : null
 
   // Account balances from the most recent snapshot with balance data
   const latestBalances = latestSnapshotData.balances.filter(b => b.snapshot_id === latestSnapshotWithData.id)
@@ -478,6 +492,29 @@ function computeDashboard(data) {
   const avgMonthlyContribution = recentSavings.length > 0
     ? recentSavings.reduce((s, v) => s + v, 0) / recentSavings.length
     : 0
+    // Compute baseline averages from completed snapshots (for AI insight)
+const completeSummaries = completeSnapshots.map(s => summarizeSnapshot(s.id, latestSnapshotData, incomeIds, expenseIds))
+const avgIncome = completeSummaries.length > 0
+  ? Math.round(completeSummaries.reduce((sum, s) => sum + s.income, 0) / completeSummaries.length)
+  : 0
+const avgExpenses = completeSummaries.length > 0
+  ? Math.round(completeSummaries.reduce((sum, s) => sum + s.expenses, 0) / completeSummaries.length)
+  : 0
+const avgSavingsRate = avgIncome > 0
+  ? Math.round(((avgIncome - avgExpenses) / avgIncome) * 100)
+  : 0
+
+// Build category breakdown for the latest complete month
+let latestExpenseBreakdown = {}
+if (latestCompleteSnapshot) {
+  const myAmounts = latestSnapshotData.amounts.filter(a => a.snapshot_id === latestCompleteSnapshot.id)
+  for (const a of myAmounts) {
+    const cat = latestSnapshotData.categories.find(c => c.id === a.category_id)
+    if (cat?.kind === 'expense' && Number(a.amount_jpy) > 0) {
+      latestExpenseBreakdown[cat.name] = Number(a.amount_jpy)
+    }
+  }
+}
 
   const age = computeAge(profile?.birth_date)
 
@@ -548,6 +585,125 @@ const daysOld = daysSince(latestSnapshotDate)
     staleness: {
       latestDate: latestSnapshotDate,
       daysOld,
+    },
+    baseline: {
+  avgIncome,
+  avgExpenses,
+  avgSavingsRate,
+  monthsAveraged: completeSummaries.length,
+},
+latestExpenseBreakdown,
+  }
+}
+
+function InsightCard({ latestMonth, dashboard }) {
+  const [insight, setInsight] = useState(latestMonth.aiInsight)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [lastUsage, setLastUsage] = useState(null)
+
+  async function generateInsight() {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const payload = buildInsightPayload(dashboard)
+      const response = await fetch('/api/insight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to generate insight')
+      }
+
+      // Save to database via Supabase
+      const { error: dbError } = await supabase
+        .from('monthly_snapshots')
+        .update({
+          ai_insight: result.reply,
+          ai_insight_generated_at: new Date().toISOString(),
+        })
+        .eq('id', latestMonth.id)
+
+      if (dbError) throw new Error(dbError.message)
+
+      setInsight(result.reply)
+      setLastUsage(result.usage)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-lg p-5">
+      <div className="flex justify-between items-center mb-2">
+        <p className="text-sm font-medium">Monthly Insight</p>
+        {insight && (
+          <button
+            onClick={generateInsight}
+            disabled={loading}
+            className="text-xs text-gray-500 underline disabled:opacity-50"
+          >
+            {loading ? 'Regenerating...' : 'Regenerate'}
+          </button>
+        )}
+      </div>
+      {insight ? (
+  <>
+    <p className="text-sm text-gray-700 leading-relaxed">{insight}</p>
+    {lastUsage && (
+      <p className="text-xs text-gray-400 mt-2">
+        {lastUsage.input_tokens.toLocaleString()} input tokens · {lastUsage.output_tokens.toLocaleString()} output tokens · ~${calcCost(lastUsage).toFixed(4)}
+      </p>
+    )}
+  </>
+) : (
+        <div>
+          <p className="text-sm text-gray-500 mb-3">
+            Get an AI-written summary of how your last complete month compared to your baseline.
+          </p>
+          <button
+            onClick={generateInsight}
+            disabled={loading}
+            className="px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white text-sm rounded-md disabled:opacity-50"
+          >
+            {loading ? 'Generating...' : 'Generate insight'}
+          </button>
+        </div>
+      )}
+      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
+  )
+}
+
+function buildInsightPayload(dashboard) {
+  const { metrics, latestMonth, accounts, headline, baseline, latestExpenseBreakdown } = dashboard
+  return {
+    thisMonth: {
+      date: latestMonth.date,
+      income: latestMonth.income,
+      expenses: latestMonth.expenses,
+      saved: latestMonth.saved,
+      savingsRate: metrics.savingsRate,
+      expenseBreakdown: latestExpenseBreakdown,
+    },
+    baseline: {
+      avgIncome: baseline.avgIncome,
+      avgExpenses: baseline.avgExpenses,
+      avgSavingsRate: baseline.avgSavingsRate,
+      monthsAveraged: baseline.monthsAveraged,
+    },
+    fireSnapshot: {
+      fireAge: headline.expectedFireAge,
+      netWorth: metrics.netWorth,
+      investedAssets: headline.investedAssets,
+      fireNumber: metrics.fireNumber,
     },
   }
 }

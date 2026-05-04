@@ -145,3 +145,7 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+  -- AI insight cache (added in v1.1)
+alter table monthly_snapshots add column ai_insight text;
+alter table monthly_snapshots add column ai_insight_generated_at timestamptz;

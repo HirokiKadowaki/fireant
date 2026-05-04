@@ -17,6 +17,7 @@ Built as a personal learning project to replace a Google Sheets workflow.
 - Privacy mode toggle for screen-sharing
 - Stale-data nudge when monthly entry is overdue
 - Mobile-optimized PWA — installable, fullscreen launch
+- AI-powered monthly insights via Claude API — server-side route generates a 2-3 sentence summary comparing the latest month to baseline, cached in the database
 
 ## Stack
 
@@ -25,6 +26,7 @@ Built as a personal learning project to replace a Google Sheets workflow.
 - **Database:** Supabase (Postgres with Row-Level Security)
 - **Auth:** Supabase Auth (email + password)
 - **Hosting:** Vercel with auto-deploy on push
+- **AI:** Anthropic Claude API (Sonnet 4.6) for monthly insight generation
 
 ## Architecture notes
 
@@ -37,7 +39,7 @@ Built as a personal learning project to replace a Google Sheets workflow.
 
 1. Clone this repo
 2. Set up a Supabase project, run `schema.sql` in the SQL Editor
-3. `cp .env.local.example .env.local` and fill in your Supabase URL and anon key
+3. `cp .env.local.example .env.local` and fill in your Supabase URL, Supabase anon key, and Anthropic API key
 4. `npm install`
 5. `npm run dev`
 6. Open `http://localhost:3000`
