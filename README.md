@@ -16,8 +16,8 @@ Built as a personal learning project to replace a Google Sheets workflow.
 - History page with trend charts and CSV export
 - Privacy mode toggle for screen-sharing
 - Stale-data nudge when monthly entry is overdue
-- Mobile-optimized PWA — installable, fullscreen launch
-- AI-powered monthly insights via Claude API — server-side route generates a 2-3 sentence summary comparing the latest month to baseline, cached in the database
+- Mobile-optimized PWA: installable, fullscreen launch
+- v2: AI-powered monthly insights via Claude API. Server-side route generates a 2-3 sentence summary comparing the latest month to baseline, cached in the database
 
 ## Stack
 
@@ -26,14 +26,14 @@ Built as a personal learning project to replace a Google Sheets workflow.
 - **Database:** Supabase (Postgres with Row-Level Security)
 - **Auth:** Supabase Auth (email + password)
 - **Hosting:** Vercel with auto-deploy on push
-- **AI:** Anthropic Claude API (Sonnet 4.6) for monthly insight generation
+- v2: **AI:** Anthropic Claude API (Sonnet 4.6) for monthly insight generation
 
 ## Architecture notes
 
 - **Single-user design** with full RLS isolation per account
-- **Monthly snapshots, not transaction-level** — sustainable workflow over years
+- **Monthly snapshots, not transaction-level**
 - **Real returns and inflation-adjusted projections** throughout
-- **Source-of-truth data model** — store birth date and compute age, store original principal and current balance separately, etc.
+- **Source-of-truth data model** Store birth date and compute age, store original principal and current balance separately, etc.
 
 ## Local development
 
@@ -47,3 +47,4 @@ Built as a personal learning project to replace a Google Sheets workflow.
 ## Status
 
 Personal project. v1 complete. Not actively seeking contributors but happy to discuss the design — open an issue.
+v2: Added AI-powered summary with Claude
