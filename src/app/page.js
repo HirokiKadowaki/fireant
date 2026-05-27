@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { projectToFire, coastFireAge, savingsRate } from '@/lib/fire'
@@ -116,6 +116,7 @@ function DashboardContent({ dashboard, privateMode }) {
   return (
     <div className="space-y-4">
       <StalenessBanner staleness={staleness} />
+      <VoiceAssistant dashboard={dashboard} />
 
       <div className="bg-white rounded-lg p-6">
         <p className="text-xs text-gray-500 mb-1">
@@ -679,6 +680,236 @@ function InsightCard({ latestMonth, dashboard }) {
       )}
       {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
     </div>
+  )
+}
+
+function buildVoiceContext(dashboard) {
+  if (!dashboard?.hasData) return null
+
+  const { metrics, headline, latestMonth, currentMonth, baseline, latestExpenseBreakdown, accounts } = dashboard
+
+  // Get today's month label
+  const now = new Date()
+  const currentMonthLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+  return {
+    todayDate: new Date().toISOString().split('T')[0],
+    currentMonthInProgress: currentMonth ? {
+      date: currentMonth.date,
+      label: 'current month (in progress, may be partial)',
+      income: currentMonth.income,
+      expenses: currentMonth.expenses,
+      saved: currentMonth.saved,
+      isEmpty: currentMonth.isEmpty,
+    } : null,
+    latestCompleteMonth: latestMonth ? {
+      date: latestMonth.date,
+      label: 'latest fully-closed month',
+      income: latestMonth.income,
+      expenses: latestMonth.expenses,
+      saved: latestMonth.saved,
+      savingsRate: metrics.savingsRate,
+      expenseBreakdown: latestExpenseBreakdown || {},
+    } : null,
+    baseline: baseline ? {
+      avgIncome: baseline.avgIncome,
+      avgExpenses: baseline.avgExpenses,
+      avgSavingsRate: baseline.avgSavingsRate,
+      monthsAveraged: baseline.monthsAveraged,
+    } : null,
+    fireProjection: {
+      expectedFireAge: headline.expectedFireAge,
+      fireAgeRange: `${Math.floor(headline.fireAgeMin)} to ${Math.ceil(headline.fireAgeMax)}`,
+      yearsToFire: headline.expectedYears,
+      fireNumber: metrics.fireNumber,
+      currentAge: headline.age,
+      investedAssets: headline.investedAssets,
+      netWorth: metrics.netWorth,
+      percentToFire: metrics.percentToFire,
+      swrPct: headline.swr,
+    },
+    accounts: accounts.map(a => ({
+      name: a.name,
+      type: a.type,
+      balance: a.balance,
+      isLocked: a.is_locked_until_60,
+    })),
+  }
+}
+
+function VoiceAssistant({ dashboard }) {
+  const [state, setState] = useState('idle')
+  const [transcript, setTranscript] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [error, setError] = useState('')
+  const mediaRecorderRef = useRef(null)
+  const chunksRef = useRef([])
+  const audioRef = useRef(null)
+
+  async function startRecording() {
+    try {
+      setState('recording')
+      setTranscript('')
+      setAnswer('')
+      setError('')
+      chunksRef.current = []
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+
+      mediaRecorder.start()
+    } catch (err) {
+      setError('Microphone access denied. Please allow microphone in browser settings.')
+      setState('idle')
+    }
+  }
+
+  async function stopRecording() {
+    if (!mediaRecorderRef.current) return
+    setState('processing')
+
+    return new Promise((resolve) => {
+      mediaRecorderRef.current.onstop = async () => {
+        const stream = mediaRecorderRef.current.stream
+        stream.getTracks().forEach(t => t.stop())
+
+        try {
+          const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
+          await processVoice(audioBlob)
+        } catch (err) {
+          setError(err.message)
+          setState('idle')
+        }
+        resolve()
+      }
+      mediaRecorderRef.current.stop()
+    })
+  }
+
+  async function processVoice(audioBlob) {
+    // Step 1: Transcribe
+    const formData = new FormData()
+    formData.append('audio', audioBlob, 'recording.webm')
+
+    const transcribeRes = await fetch('/api/voice/transcribe', {
+      method: 'POST',
+      body: formData,
+    })
+    const { text, error: transcribeError } = await transcribeRes.json()
+    if (transcribeError) throw new Error(transcribeError)
+    setTranscript(text)
+
+    // Step 2: Get answer from Claude
+    const context = buildVoiceContext(dashboard)
+    const answerRes = await fetch('/api/voice/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: text, context }),
+    })
+    const { answer: answerText, error: answerError } = await answerRes.json()
+    if (answerError) throw new Error(answerError)
+    setAnswer(answerText)
+
+    // Step 3: Convert to speech
+    setState('speaking')
+    const speakRes = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: answerText }),
+    })
+
+    if (!speakRes.ok) throw new Error('Failed to generate speech')
+
+    const audioBlob2 = await speakRes.blob()
+    const audioUrl = URL.createObjectURL(audioBlob2)
+
+    if (audioRef.current) {
+      audioRef.current.src = audioUrl
+      audioRef.current.onended = () => {
+        setState('idle')
+        URL.revokeObjectURL(audioUrl)
+      }
+      audioRef.current.play()
+    }
+  }
+
+  function handlePointerDown() {
+    startRecording()
+  }
+
+  function handlePointerUp() {
+    if (state === 'recording') stopRecording()
+  }
+
+  const stateConfig = {
+    idle: {
+      bg: 'bg-red-700 hover:bg-red-800',
+      icon: '🎙️',
+      label: 'Hold to ask',
+    },
+    recording: {
+      bg: 'bg-red-500 animate-pulse',
+      icon: '⏺',
+      label: 'Listening...',
+    },
+    processing: {
+      bg: 'bg-gray-500',
+      icon: '⏳',
+      label: 'Thinking...',
+    },
+    speaking: {
+      bg: 'bg-green-600',
+      icon: '🔊',
+      label: 'Speaking...',
+    },
+  }
+
+  const config = stateConfig[state] || stateConfig.idle
+
+  return (
+    <>
+      <audio ref={audioRef} className="hidden" />
+
+      <div className="fixed bottom-6 right-6 flex flex-col items-end gap-2 z-50">
+        {(transcript || answer || error) && (
+          <div className="bg-white rounded-lg shadow-lg p-4 max-w-xs text-sm">
+            {transcript && (
+              <p className="text-gray-500 mb-1">
+                <span className="font-medium">You:</span> {transcript}
+              </p>
+            )}
+            {answer && (
+              <p className="text-gray-800">
+                <span className="font-medium">FireAnt:</span> {answer}
+              </p>
+            )}
+            {error && (
+              <p className="text-red-600">{error}</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col items-center gap-1">
+          <button
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
+            disabled={state === 'processing' || state === 'speaking'}
+            className={`w-14 h-14 rounded-full text-white text-xl shadow-lg transition-all ${config.bg} disabled:opacity-60 select-none`}
+          >
+            {config.icon}
+          </button>
+          <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full shadow-sm">
+            {config.label}
+          </span>
+        </div>
+      </div>
+    </>
   )
 }
 
