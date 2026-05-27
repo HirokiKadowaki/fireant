@@ -1,3 +1,4 @@
+
 # FireAnt
 
 Personal FIRE (Financial Independence, Retire Early) tracker, built for Japan-specific scenarios.
@@ -48,4 +49,3 @@ Built as a personal learning project to replace a Google Sheets workflow.
 
 Personal project. v1 complete. Not actively seeking contributors but happy to discuss the design.
 v2: Added AI-powered summary with Claude
-v3: Added Voice assistant, push-to-talk, ElevenLabs STT + TTS, Claude for reasoning against your data
